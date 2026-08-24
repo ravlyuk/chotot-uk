@@ -10,7 +10,7 @@
     let timer = 0;
     return () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => CHOTOT_UK.translateDocument(), 120);
+      timer = window.setTimeout(() => CHOTOT_UK.translateDocument(), 80);
     };
   })();
 
@@ -27,16 +27,25 @@
   const historyMethods = ["pushState", "replaceState"];
   for (const methodName of historyMethods) {
     const original = history[methodName];
-    history[methodName] = function patchedHistory() {
+    if (original.__chototUkPatched) {
+      continue;
+    }
+    const patched = function patchedHistory() {
       const result = original.apply(this, arguments);
       translateSoon();
       return result;
     };
+    patched.__chototUkPatched = true;
+    history[methodName] = patched;
   }
 
-  setTimeout(() => CHOTOT_UK.translateDocument(), 800);
-  setTimeout(() => CHOTOT_UK.translateDocument(), 2000);
+  setTimeout(() => CHOTOT_UK.translateDocument(), 400);
+  setTimeout(() => CHOTOT_UK.translateDocument(), 1200);
+  setTimeout(() => CHOTOT_UK.translateDocument(), 2800);
 
+  if (!globalThis.chrome?.storage?.onChanged) {
+    return;
+  }
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "sync") {
       return;

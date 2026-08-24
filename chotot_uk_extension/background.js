@@ -33,6 +33,18 @@ function parseGooglePayload(payload) {
     .join("");
 }
 
+function maskVnd(text) {
+  return text.replace(/\bVNĐ\b/g, "VND").replace(/\bVND\b/gi, "XXXVNDXXX");
+}
+
+function keepVnd(source, translated) {
+  let result = (translated || "").replace(/XXXVNDXXX/gi, "VND").replace(/\bVNĐ\b/g, "VND");
+  if (/\b(VND|VNĐ)\b/i.test(source) && !/\bVND\b/.test(result)) {
+    result = result.replace(/\b(?:вн\.?\s*д\.?|донги?|донгів)\b/gi, "VND");
+  }
+  return result;
+}
+
 async function translateOne(text) {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -49,11 +61,12 @@ async function translateOne(text) {
 
   const chunks = chunkText(trimmed, 180);
   const translated = (
-    await Promise.all(chunks.map((chunk) => translateChunk(chunk)))
+    await Promise.all(chunks.map((chunk) => translateChunk(maskVnd(chunk))))
   ).join("");
-  memoryCache.set(trimmed, translated);
-  persistentCache[trimmed] = translated;
-  return translated;
+  const kept = keepVnd(trimmed, translated);
+  memoryCache.set(trimmed, kept);
+  persistentCache[trimmed] = kept;
+  return kept;
 }
 
 function chunkText(text, maxChars) {

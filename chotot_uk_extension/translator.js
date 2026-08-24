@@ -26,11 +26,14 @@ const CHOTOT_UK = (() => {
   const ATTRS_TO_TRANSLATE = ["placeholder", "title", "aria-label", "alt"];
   const ATTR_ONLY_TAGS = new Set(["INPUT", "TEXTAREA", "IMG"]);
 
+  const alwaysPhrases =
+    typeof CHOTOT_UK_ALWAYS_PHRASES === "undefined" ? new Set() : CHOTOT_UK_ALWAYS_PHRASES;
   const phraseRegexes = Object.entries(CHOTOT_UK_PHRASES)
     .sort((left, right) => right[0].length - left[0].length)
     .map(([source, target]) => ({
       target,
       sourceLength: source.length,
+      always: alwaysPhrases.has(source),
       re: new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(source)}(?![\\p{L}\\p{N}])`, "giu"),
     }));
 
@@ -72,13 +75,14 @@ const CHOTOT_UK = (() => {
 
     const skipFragments = isFreeformText(text);
     let result = text;
-    if (!skipFragments) {
-      for (const pattern of CHOTOT_UK_PATTERNS) {
-        result = result.replace(pattern.re, pattern.to);
+    for (const pattern of CHOTOT_UK_PATTERNS) {
+      if (skipFragments && !pattern.always) {
+        continue;
       }
+      result = result.replace(pattern.re, pattern.to);
     }
-    for (const { re, target, sourceLength } of phraseRegexes) {
-      if (skipFragments && sourceLength < 28) {
+    for (const { re, target, sourceLength, always } of phraseRegexes) {
+      if (skipFragments && sourceLength < 28 && !always) {
         continue;
       }
       re.lastIndex = 0;
@@ -176,9 +180,27 @@ const CHOTOT_UK = (() => {
     return text.split("/").map((part) => translateBreadcrumbSegment(part)).join("/");
   }
 
+  const UI_LOCATION_PROMPT_RE =
+    /\b(Chọn|Tìm kiếm|Tìm theo|Nhập vị trí|Nhập|Xoá|Xóa|Áp dụng|quanh bạn|Khu vực)\b/i;
+
+  function isUiLocationPrompt(text) {
+    return UI_LOCATION_PROMPT_RE.test((text || "").trim());
+  }
+
+  function isLocationNameOnly(text) {
+    const trimmed = (text || "").replace(/\s+/g, " ").trim();
+    if (!trimmed || trimmed.length > 80 || isUiLocationPrompt(trimmed)) {
+      return false;
+    }
+    return isLocationRest(trimmed);
+  }
+
   function isAddressText(text) {
     const trimmed = (text || "").replace(/\s+/g, " ").trim();
     if (trimmed.length < 4 || trimmed.length > 160) {
+      return false;
+    }
+    if (isUiLocationPrompt(trimmed)) {
       return false;
     }
     if (BREADCRUMB_CATEGORY_RE.test(trimmed) || (trimmed.match(/\//g) || []).length >= 2) {
@@ -223,8 +245,24 @@ const CHOTOT_UK = (() => {
     return false;
   }
 
+  function isInsideLocationPicker(node) {
+    let element = node && node.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+    for (let depth = 0; depth < 12 && element && element !== document.body; depth += 1) {
+      const role = element.getAttribute?.("role") || "";
+      if (role === "dialog" || role === "alertdialog") {
+        return true;
+      }
+      const cls = element.getAttribute?.("class") || "";
+      if (/(?:^|[\s_-])(modal|drawer|dialog|bottomsheet|bottom-sheet|popup)(?:$|[\s_-])/i.test(cls)) {
+        return true;
+      }
+      element = element.parentElement;
+    }
+    return false;
+  }
+
   function isInsideAddress(node) {
-    if (isInsideBreadcrumb(node)) {
+    if (isInsideBreadcrumb(node) || isInsideLocationPicker(node)) {
       return false;
     }
     let element = node && node.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
@@ -234,7 +272,7 @@ const CHOTOT_UK = (() => {
         return true;
       }
       const cls = element.getAttribute?.("class") || "";
-      if (/\b(address|adAddress|ad-address|location|AdLocation|areaItem)\b/i.test(cls)) {
+      if (/\b(address|adAddress|ad-address|AdLocation|areaItem)\b/i.test(cls)) {
         return true;
       }
       if (element.getAttribute?.("itemprop") === "address") {
@@ -294,7 +332,12 @@ const CHOTOT_UK = (() => {
       }
       return;
     }
-    if (isAddressText(original) || isInsideAddress(textNode) || isPriceText(original)) {
+    if (
+      isLocationNameOnly(original) ||
+      isAddressText(original) ||
+      isInsideAddress(textNode) ||
+      isPriceText(original)
+    ) {
       return;
     }
 
@@ -349,7 +392,7 @@ const CHOTOT_UK = (() => {
         }
         continue;
       }
-      if (isAddressText(original) || isInsideAddress(element)) {
+      if (isLocationNameOnly(original) || isAddressText(original) || isInsideAddress(element)) {
         continue;
       }
       const cacheKey = `${attr}::${original}`;
@@ -595,7 +638,7 @@ const CHOTOT_UK = (() => {
       }
       sources.forEach((source, chunkIndex) => {
         const raw = result.translations[chunkIndex] || source;
-        translatedMap.set(source, unmaskVnd(source, raw));
+        translatedMap.set(source, applyDictionary(unmaskVnd(source, raw)));
       });
     }
 
