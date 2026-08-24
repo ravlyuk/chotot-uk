@@ -11,8 +11,8 @@ android {
         applicationId = "ua.chotot.uk"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "1.0.13"
+        versionCode = 19
+        versionName = "1.0.18"
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")
         }

@@ -104,7 +104,14 @@ const CHOTOT_UK_PHRASES = {
   "Đặt lại": "Скинути",
   "Lọc": "Фільтр",
   "Bộ lọc": "Фільтри",
+  "Sắp xếp theo": "Сортувати за",
   "Sắp xếp": "Сортування",
+  "Giá thấp trước": "Спочатку дешевші",
+  "Giá cao trước": "Спочатку дорожчі",
+  "Giá thấp đến cao": "Від дешевих",
+  "Giá cao đến thấp": "Від дорогих",
+  "Từ thấp đến cao": "Від дешевих",
+  "Từ cao đến thấp": "Від дорогих",
   "Xoá Lọc": "Скинути фільтр",
   "Xóa Lọc": "Скинути фільтр",
   "Xoá lọc": "Скинути фільтр",
@@ -116,6 +123,17 @@ const CHOTOT_UK_PHRASES = {
   "Hãy xóa một số bộ lọc hoặc thay đổi khu vực tìm kiếm để xem nhiều kết quả hơn":
     "Приберіть частину фільтрів або змініть регіон, щоб побачити більше результатів",
   "Tin có video": "З відео",
+  "Có video": "Є відео",
+  "Năm đăng ký tối thiểu": "Мін. рік реєстрації",
+  "Năm đăng ký tối đa": "Макс. рік реєстрації",
+  "Năm đăng ký": "Рік реєстрації",
+  "Năm Реєстрація мінімум": "Мін. рік реєстрації",
+  "Năm Реєстрація максимум": "Макс. рік реєстрації",
+  "Năm Реєстрація": "Рік реєстрації",
+  "Năm": "Рік",
+  "Cửa hàng xác thực": "Верифікований салон",
+  "Салон xác thực": "Верифікований салон",
+  "xác thực": "верифікований",
   "Liên quan nhất": "Найрелевантніші",
   "Tin mới nhất": "Найновіші",
   "Dạng lưới": "Сітка",
@@ -438,6 +456,12 @@ const CHOTOT_UK_PHRASES = {
 
   // --- Filters ---
   "Khoảng giá": "Діапазон цін",
+  "Lọc theo": "Фільтр за",
+  "Фільтр theo": "Фільтр за",
+  "Giá dưới": "Ціна до",
+  "Ціна dưới": "Ціна до",
+  "Giá từ": "Ціна від",
+  "Ціна từ": "Ціна від",
   "Hãng xe": "Марка",
   "Số chỗ ngồi": "Кількість місць",
   "Dẫn động": "Привід",
@@ -508,6 +532,7 @@ const CHOTOT_UK_PHRASES = {
   "CSKH:": "Підтримка:",
   "Tầng 18, Toà nhà UOA, Số 6 đường Tân Trào, Phường Tân Mỹ, Thành phố Hồ Chí Minh, Việt Nam":
     "18 поверх, будівля UOA, вул. Tân Trào, 6, квартал Tân Mỹ, Хошимін, В'єтнам",
+  "Mới": "Нове",
   "mới": "нове",
   "cũ": "вживане",
   "chỗ": "місць",
@@ -568,6 +593,18 @@ const CHOTOT_UK_PHRASES = {
     "Шукаєте сімейне авто, мотоцикл для щоденних поїздок, електромобіль з низькими витратами, вантажівку для роботи чи запчастини — на Chợ Tốt Xe є пропозиції від приватних продавців і салонів по всій країні.",
   "Khám phá các tin đăng mới nhất trên Chợ Tốt Xe để dễ dàng so sánh mẫu xe, mức giá và lựa chọn phương tiện phù hợp với nhu cầu của bạn.":
     "Переглядайте свіжі оголошення на Chợ Tốt Xe, порівнюйте моделі й ціни та обирайте транспорт під свої потреби.",
+  "Thu gọn": "Згорнути",
+  "Mở rộng": "Розгорнути",
+  "Thị trường xe máy cũ trên toàn quốc luôn sôi động với đa dạng mẫu mã từ xe số, xe tay ga đến xe côn tay, phù hợp với nhu cầu đi lại hàng ngày, đi làm hoặc di chuyển đường dài.":
+    "Ринок вживаних мотоциклів по всій країні жвавий: класика, скутери й моделі зі зчепленням — для щоденних поїздок, роботи чи дальніх маршрутів.",
+  "Người bán xe máy cũ có thể dễ dàng đăng tin, tiếp cận lượng lớn người mua tiềm năng trên toàn quốc và chốt giao dịch nhanh chóng.":
+    "Продавець вживаного мотоцикла може швидко розмістити оголошення, охопити багато покупців по країні й закрити угоду.",
+  "Giá xe máy cũ dao động linh hoạt tùy theo hãng xe, đời xe, số km đã sử dụng và tình trạng thực tế.":
+    "Ціни на вживані мотоцикли залежать від марки, року, пробігу та фактичного стану.",
+  "Nhờ mức khấu hao sau thời gian sử dụng, nhiều mẫu xe máy cũ có giá dễ tiếp cận hơn so với xe mới, giúp người mua tiết kiệm chi phí mà vẫn đảm bảo nhu cầu di chuyển.":
+    "Через амортизацію багато вживаних мотоциклів дешевші за нові — можна заощадити й надалі їздити.",
+  "Nguồn cung đa dạng trên toàn quốc cũng giúp người mua dễ dàng so sánh, lựa chọn và tìm được chiếc xe máy phù hợp với ngân sách trên Chợ Tốt Xe.":
+    "Велика пропозиція по країні дає змогу порівняти варіанти й знайти мотоцикл під бюджет на Chợ Tốt Xe.",
 
   // --- Common listing / shop slang ---
   "máy zin": "сток-двигун",
@@ -627,6 +664,24 @@ const CHOTOT_UK_ALWAYS_PHRASES = new Set([
   "Xóa Lọc",
   "Khu vực",
   "Áp dụng",
+  "Sắp xếp theo",
+  "Tin mới nhất",
+  "Giá thấp trước",
+  "Giá cao trước",
+  "Có video",
+  "Năm đăng ký",
+  "Năm Реєстрація",
+  "Cửa hàng xác thực",
+  "Салон xác thực",
+  "Lọc theo",
+  "Фільтр theo",
+  "Giá dưới",
+  "Ціна dưới",
+  "Giá từ",
+  "Ціна từ",
+  "Mua bán Xe máy",
+  "Thu gọn",
+  "Mở rộng",
 ]);
 
 const CHOTOT_UK_PATTERNS = [
@@ -635,6 +690,39 @@ const CHOTOT_UK_PATTERNS = [
   { re: /(?<![\p{L}\p{N}])(?:Hoạt động|Діяльність)(?![\p{L}\p{N}])/giu, to: "Онлайн", always: true },
   { re: /Продати\s*ngay/gi, to: "Продати зараз", always: true },
   { re: /Послуги\s+кор[иі]сно/gi, to: "Корисні послуги", always: true },
+  { re: /Năm\s+Реєстрація\s+мінімум/g, to: "Мін. рік реєстрації", always: true },
+  { re: /Năm\s+Реєстрація\s+максимум/g, to: "Макс. рік реєстрації", always: true },
+  { re: /Năm\s+Реєстрація/g, to: "Рік реєстрації", always: true },
+  { re: /(?:Xem|Дивитися)\s+([\d.]+)\s+kết quả/gi, to: "Дивитися $1 результатів", always: true },
+  { re: /([\d.]+)\s+kết quả/gi, to: "$1 результатів", always: true },
+  { re: /Салон\s+xác thực/gi, to: "Верифікований салон", always: true },
+  { re: /Cửa hàng\s+xác thực/gi, to: "Верифікований салон", always: true },
+  { re: /Фільтр\s+theo/g, to: "Фільтр за", always: true },
+  { re: /Lọc\s+theo/gi, to: "Фільтр за", always: true },
+  { re: /(?:Ціна|Giá)\s+dưới/gi, to: "Ціна до", always: true },
+  { re: /(?:Ціна|Giá)\s+từ/gi, to: "Ціна від", always: true },
+  { re: /Trên\s+(\d+)\s*cc/gi, to: "Понад $1 куб. см", always: true },
+  { re: /Trên\s+(\d+)/gi, to: "Понад $1", always: true },
+  {
+    re: /Mua bán xe máy cũ(?:\s+([^,]+))?,\s*([\d.]+)\s*xe(?: máy)? giá tốt\s*(\d{2}\/\d{2}\/\d{4})/gi,
+    to: (_, loc, count, date) =>
+      `Купівля-продаж вживаних мотоциклів${loc ? ` ${loc.trim()}` : ""}, ${count} мотоциклів за вигідними цінами ${date}`,
+    always: true,
+  },
+  {
+    re: /Mua bán xe máy cũ(?:\s+([^,]+?))? với hơn ([\d.]+) xe đang được đăng bán trên Chợ Tốt Xe cập nhật ngày (\d{2}\/\d{2}\/\d{4})\./gi,
+    to: (_, loc, count, date) =>
+      `Купівля-продаж вживаних мотоциклів${loc ? ` ${loc.trim()}` : ""}: понад ${count} оголошень на Chợ Tốt Xe, оновлено ${date}.`,
+    always: true,
+  },
+  {
+    re: /Mua bán ô tô cũ(?:\s+([^,]+))?,\s*([\d.]+)\s*ô tô giá tốt\s*(\d{2}\/\d{2}\/\d{4})/gi,
+    to: (_, loc, count, date) =>
+      `Купівля-продаж вживаних авто${loc ? ` ${loc.trim()}` : ""}, ${count} авто за вигідними цінами ${date}`,
+    always: true,
+  },
+  { re: /Dưới\s+([\d.]+)\s*triệu(?:\s*đồng)?/gi, to: "До $1 млн VND", always: true },
+  { re: /До\s+([\d.]+)\s*мільйонів\s+(?:донгів|донги|донг)/gi, to: "До $1 млн VND", always: true },
   { re: /Tin đã được đưa vào danh sách(?:\s+(?:Theo dõi|Стежити))?/gi, to: "Оголошення додано до обраного", always: true },
   { re: /Tin đã được (?:xóa|gỡ) khỏi danh sách(?:\s+(?:Theo dõi|Стежити))?/gi, to: "Оголошення видалено з обраного", always: true },
   { re: /Đăng\s*(\d+)\s*giây\s+trước/gi, to: "Опубліковано $1 с тому" },
@@ -678,7 +766,7 @@ const CHOTOT_UK_PATTERNS = [
   { re: /(\d+)\+\s*triệu/gi, to: "$1+ млн" },
   { re: /(\d+)\s*tỷ(?:\s+(\d+)\s*triệu)?/gi, to: (_, ty, trieu) => (trieu ? `${ty} млрд ${trieu} млн` : `${ty} млрд`) },
   { re: /(\d+)\s*triệu/gi, to: "$1 млн" },
-  { re: /(\d+)\s+xe\s+(?=\p{L})/giu, to: "$1 " },
+  { re: /(\d+)\s+xe\s+(?=Honda|Yamaha|Toyota|Hyundai|Ford|Suzuki|VinFast|SYM|Piaggio|Kawasaki|Ducati|Mazda|Kia|Mercedes|BMW)/gi, to: "$1 " },
   { re: /Q\.\s+/g, to: "р-н " },
   { re: /P\.\s+/g, to: "кв. " },
   { re: /TP\.\s+/gi, to: "м. " },

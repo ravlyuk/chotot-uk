@@ -181,7 +181,7 @@ const CHOTOT_UK = (() => {
   }
 
   const UI_LOCATION_PROMPT_RE =
-    /\b(Chọn|Tìm kiếm|Tìm theo|Nhập vị trí|Nhập|Xoá|Xóa|Áp dụng|quanh bạn|Khu vực)\b/i;
+    /\b(Chọn|Tìm kiếm|Tìm theo|Nhập vị trí|Nhập|Xoá|Xóa|Áp dụng|Застосувати|quanh bạn|Khu vực|Sắp xếp|Tin mới nhất|Giá thấp|Giá cao|Радіус|Місце пошуку|Пошук навколо)\b/i;
 
   function isUiLocationPrompt(text) {
     return UI_LOCATION_PROMPT_RE.test((text || "").trim());
@@ -254,6 +254,16 @@ const CHOTOT_UK = (() => {
       }
       const cls = element.getAttribute?.("class") || "";
       if (/(?:^|[\s_-])(modal|drawer|dialog|bottomsheet|bottom-sheet|popup)(?:$|[\s_-])/i.test(cls)) {
+        return true;
+      }
+      const raw = element.textContent || "";
+      if (raw.length <= 800) {
+        const snippet = raw.replace(/\s+/g, " ");
+        if (/Tìm kiếm quanh bạn|Пошук навколо вас/.test(snippet)) {
+          return true;
+        }
+      }
+      if (element.tagName === "FORM" && raw.length <= 1500 && /Sắp xếp theo|Chọn tỉnh thành|Khu vực/.test(raw)) {
         return true;
       }
       element = element.parentElement;

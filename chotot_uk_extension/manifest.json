@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chợ Tốt → Українська",
-  "version": "1.2.1",
+  "version": "1.2.6",
   "description": "Перекладає Chợ Tốt українською: xe.chotot.com, www.chotot.com, фільтри, пошук і оголошення.",
   "icons": {
     "16": "icons/icon16.png",
