@@ -1,0 +1,10 @@
+.DS_Store
+.idea/
+.cursor/
+*.iml
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+*.log

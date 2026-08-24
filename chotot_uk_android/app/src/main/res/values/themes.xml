@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.ChototUk" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/brand_yellow</item>
+        <item name="colorOnPrimary">@color/toolbar_on_yellow</item>
+        <item name="android:statusBarColor">@color/brand_blue</item>
+        <item name="android:navigationBarColor">@color/brand_blue</item>
+        <item name="android:navigationBarDividerColor">@color/brand_blue</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

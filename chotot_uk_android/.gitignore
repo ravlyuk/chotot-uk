@@ -1,0 +1,12 @@
+.gradle/
+/build/
+/app/build/
+/local.properties
+/.idea/
+*.iml
+.DS_Store
+captures/
+*.apk
+*.aab
+app/src/main/assets/translator/dictionary.js
+app/src/main/assets/translator/translator.js
