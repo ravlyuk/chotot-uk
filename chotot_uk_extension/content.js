@@ -57,7 +57,7 @@
       }
     }
     if (changes.useOnline) {
-      CHOTOT_UK.setUseOnline(changes.useOnline.newValue !== false);
+      CHOTOT_UK.setUseOnline(changes.useOnline.newValue === true);
     }
   });
 })();

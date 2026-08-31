@@ -25,7 +25,7 @@ class TranslateBridge(
     }
 
     @JavascriptInterface
-    fun isOnlineEnabled(): Boolean = prefs.getBoolean(PREF_ONLINE, true)
+    fun isOnlineEnabled(): Boolean = prefs.getBoolean(PREF_ONLINE, false)
 
     @JavascriptInterface
     fun translateBatch(requestId: String, textsJson: String) {

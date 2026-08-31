@@ -4,6 +4,7 @@
 
   dismissAppPromoCookie();
   injectPromoStyle();
+  keepComposerVisible();
 
   const translateSoon = debounce(() => {
     hideAppPromo();
@@ -11,6 +12,28 @@
       CHOTOT_UK.translateDocument();
     }
   }, 80);
+
+  function keepComposerVisible() {
+    const viewport = window.visualViewport;
+    if (!viewport) {
+      return;
+    }
+    const revealFocusedField = () => {
+      const focused = document.activeElement;
+      if (
+        !focused ||
+        (focused.tagName !== "INPUT" &&
+          focused.tagName !== "TEXTAREA" &&
+          !focused.isContentEditable)
+      ) {
+        return;
+      }
+      focused.scrollIntoView({ block: "center", inline: "nearest" });
+    };
+    viewport.addEventListener("resize", revealFocusedField);
+    viewport.addEventListener("scroll", revealFocusedField);
+    window.addEventListener("focusin", revealFocusedField);
+  }
 
   function debounce(fn, waitMs) {
     let timer = 0;
@@ -69,20 +92,28 @@
   }
 
   function findPromoRoot(node) {
-    const named = node.closest(".showSafetyM, .showSafetyD, [class*='showSafety']");
+    const named = node.closest(
+      ".showSafetyM, .showSafetyD, [class*='showSafety'], [role='dialog'], [aria-modal='true']",
+    );
     if (named && named !== document.body) {
       return named;
     }
     let current = node;
-    for (let depth = 0; depth < 8; depth += 1) {
+    for (let depth = 0; depth < 10; depth += 1) {
       const parent = current.parentElement;
       if (!parent || parent === document.body || parent === document.documentElement) {
         break;
       }
       const parentText = (parent.innerText || "").replace(/\s+/g, " ").trim();
       const position = window.getComputedStyle(parent).position;
-      const isOverlay = position === "fixed" || position === "sticky";
-      if (parentText.length > 280 && !isOverlay) {
+      const role = parent.getAttribute("role") || "";
+      const isOverlay =
+        position === "fixed" ||
+        position === "sticky" ||
+        position === "absolute" ||
+        role === "dialog" ||
+        parent.getAttribute("aria-modal") === "true";
+      if (parentText.length > 420 && !isOverlay) {
         break;
       }
       current = parent;
@@ -100,11 +131,52 @@
     node.style.setProperty("display", "none", "important");
   }
 
+  let didClickContinueInBrowser = false;
+
+  function clickContinueInBrowser() {
+    if (didClickContinueInBrowser) {
+      return;
+    }
+    const nodes = document.querySelectorAll("a, button, [role='button']");
+    for (const node of nodes) {
+      const text = (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim();
+      if (!text || text.length > 48) {
+        continue;
+      }
+      if (
+        /(?:Tiếp tục|Продовжити)\s+(?:với trình duyệt|в браузері|з браузером)/i.test(text) ||
+        /với trình duyệt/i.test(text)
+      ) {
+        didClickContinueInBrowser = true;
+        node.click();
+        return;
+      }
+    }
+  }
+
+  function hideOpenAppInterstitial() {
+    clickContinueInBrowser();
+    const nodes = document.querySelectorAll("a, button, [role='button'], h1, h2, p, span");
+    for (const node of nodes) {
+      const text = (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim();
+      if (
+        !text ||
+        text.length > 80 ||
+        !/Mở bằng app|Відкрити в застосунку|Nhắn tin tiện hơn|Написати tiện hơn|ứng dụng app Chợ Tốt/i.test(text)
+      ) {
+        continue;
+      }
+      hideNode(findPromoRoot(node));
+      break;
+    }
+  }
+
   function hideAppPromo() {
     dismissAppPromoCookie();
     document.querySelectorAll(
-      ".showSafetyM, .showSafetyD, a[href^='chotot-app:'], a[href*='web_to_app'], a[href*='utm_medium=top_banner'], img[src*='appstore-dowload'], img[src*='googleplay-dowload'], img[src*='uu-dai'], img[src*='uudai'], img[src*='floating_button'], a[href*='uu-dai']",
+      ".showSafetyM, .showSafetyD, a[href^='chotot-app:'], a[href^='intent:'], a[href*='web_to_app'], a[href*='utm_medium=top_banner'], img[src*='appstore-dowload'], img[src*='googleplay-dowload'], img[src*='uu-dai'], img[src*='uudai'], img[src*='floating_button'], a[href*='uu-dai']",
     ).forEach((node) => hideNode(findPromoRoot(node)));
+    hideOpenAppInterstitial();
   }
 
   hideAppPromo();

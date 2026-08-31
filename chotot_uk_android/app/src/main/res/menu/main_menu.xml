@@ -6,13 +6,9 @@
         android:title="@string/action_home"
         app:showAsAction="never" />
     <item
-        android:id="@+id/action_refresh"
-        android:title="@string/action_refresh"
-        app:showAsAction="never" />
-    <item
         android:id="@+id/action_online"
         android:checkable="true"
-        android:checked="true"
+        android:checked="false"
         android:title="@string/action_online"
         app:showAsAction="never" />
 </menu>

@@ -1,9 +1,9 @@
 const enabledInput = document.getElementById("enabled");
 const onlineInput = document.getElementById("useOnline");
 
-chrome.storage.sync.get({ enabled: true, useOnline: true }, (settings) => {
+chrome.storage.sync.get({ enabled: true, useOnline: false }, (settings) => {
   enabledInput.checked = settings.enabled !== false;
-  onlineInput.checked = settings.useOnline !== false;
+  onlineInput.checked = settings.useOnline === true;
 });
 
 enabledInput.addEventListener("change", () => {

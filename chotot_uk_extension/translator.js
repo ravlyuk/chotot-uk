@@ -39,7 +39,7 @@ const CHOTOT_UK = (() => {
 
   const memoryCache = new Map();
   let isEnabled = true;
-  let useOnline = true;
+  let useOnline = false;
   let isMutating = false;
   const pendingOnline = new Map();
   const onlineResolvers = new Map();
@@ -195,8 +195,40 @@ const CHOTOT_UK = (() => {
     return isLocationRest(trimmed);
   }
 
+  function isCompanyLegalText(text) {
+    return /GPDKKD|GPMXH|CÔNG TY TNHH|Người đại diện|Chịu trách nhiệm nội dung|Địa chỉ:\s*Tầng|Toà nhà UOA|Tân Trào|Sở KH|Bộ Thông tin|GIẤY PHÉP|ЄДР|ЛІЦЕНЗІЯ|trogiup@chotot/i.test(
+      text || "",
+    );
+  }
+
+  const RELATIVE_TIME_RE =
+    /(?:Cập nhật|Đăng|Hoạt động|Оновлено|Опубліковано|Був онлайн)\s+(?:\d+\s+)?(?:giây|phút|giờ|ngày|tuần|tháng|năm|с|хв|год|дн\.|тиж\.|міс\.|р\.|một\s+ngày|hôm\s+qua|hôm\s+nay|vừa\s+xong)(?:\s*(?:trước|тому))?/gi;
+
+  function hasRelativeTimeClause(text) {
+    RELATIVE_TIME_RE.lastIndex = 0;
+    return RELATIVE_TIME_RE.test(text || "");
+  }
+
+  function isRelativeTimeText(text) {
+    const trimmed = (text || "").replace(/\s+/g, " ").trim();
+    if (!trimmed || trimmed.length > 72 || !hasRelativeTimeClause(trimmed)) {
+      return false;
+    }
+    RELATIVE_TIME_RE.lastIndex = 0;
+    const leftover = trimmed.replace(RELATIVE_TIME_RE, "").replace(/[·•|,.\-–]/g, "").trim();
+    return leftover.length === 0;
+  }
+
+  function translateTimeClauses(text) {
+    RELATIVE_TIME_RE.lastIndex = 0;
+    return text.replace(RELATIVE_TIME_RE, (match) => applyDictionary(match));
+  }
+
   function isAddressText(text) {
     const trimmed = (text || "").replace(/\s+/g, " ").trim();
+    if (isCompanyLegalText(trimmed) || isRelativeTimeText(trimmed)) {
+      return false;
+    }
     if (trimmed.length < 4 || trimmed.length > 160) {
       return false;
     }
@@ -275,6 +307,11 @@ const CHOTOT_UK = (() => {
     if (isInsideBreadcrumb(node) || isInsideLocationPicker(node)) {
       return false;
     }
+    const ownText =
+      node && node.nodeType === Node.TEXT_NODE ? node.nodeValue || "" : (node && node.textContent) || "";
+    if (isRelativeTimeText(ownText)) {
+      return false;
+    }
     let element = node && node.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
     for (let depth = 0; depth < 5 && element && element !== document.body; depth += 1) {
       const href = element.getAttribute?.("href") || "";
@@ -290,7 +327,12 @@ const CHOTOT_UK = (() => {
       }
       if (element.childElementCount <= 10) {
         const text = (element.textContent || "").replace(/\s+/g, " ").trim();
-        if (text.length > 0 && text.length <= 220 && isAddressText(text)) {
+        if (
+          text.length > 0 &&
+          text.length <= 220 &&
+          !hasRelativeTimeClause(text) &&
+          isAddressText(text)
+        ) {
           return true;
         }
       }
@@ -327,12 +369,76 @@ const CHOTOT_UK = (() => {
     return "";
   }
 
+  const uiPhraseLookup = new Set(
+    Object.keys(CHOTOT_UK_PHRASES).map((key) => key.toLowerCase()),
+  );
+
+  function isProtectedUsername(text) {
+    const trimmed = (text || "").trim();
+    if (!trimmed || trimmed.length > 32) {
+      return false;
+    }
+    if (uiPhraseLookup.has(trimmed.toLowerCase())) {
+      return false;
+    }
+    return /^[A-Za-z][A-Za-z0-9._]{1,24}$/.test(trimmed);
+  }
+
+  const IDENTITY_UI_RE =
+    /Hoạt động|Đang trả giá|Đang Online|Đang hoạt động|Đang Онлайн|Cập nhật|Xem trang|tương tự|trước|Online|Онлайн|Торг|відгук|Từ chối|Chấp nhận|Tỷ lệ|phản hồi|Người theo dõi|Theo dõi|Đã tham gia|Chưa cung cấp|Chia sẻ|đánh giá|hài lòng|người mua|người bán|Người dùng|Giao tiếp|tin nhắn|Đáng tin|Đúng hẹn|Tin đăng|Tin đang|Chưa có|Фільтр|Tìm hiểu|hợp lý|thân thiện/i;
+
+  function isLikelyUiText(text) {
+    const trimmed = (text || "").trim();
+    if (!trimmed) {
+      return false;
+    }
+    if (uiPhraseLookup.has(trimmed.toLowerCase())) {
+      return true;
+    }
+    if (IDENTITY_UI_RE.test(trimmed)) {
+      return true;
+    }
+    if (trimmed.length > 22) {
+      return true;
+    }
+    if (/\d+\s*%/.test(trimmed) || /[★*]/.test(trimmed) || /:\s*\d/.test(trimmed)) {
+      return true;
+    }
+    if (/\(\s*\d+\s*\)/.test(trimmed)) {
+      return true;
+    }
+    return false;
+  }
+
+  function isInsideUserIdentity(node) {
+    const ownText = ((node && node.nodeType === Node.TEXT_NODE ? node.nodeValue : node?.textContent) || "").trim();
+    if (ownText && isLikelyUiText(ownText)) {
+      return false;
+    }
+    let element = node && node.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+    for (let depth = 0; depth < 6 && element && element !== document.body; depth += 1) {
+      const cls = `${element.getAttribute?.("class") || ""} ${element.id || ""}`;
+      if (/(user[-_]?name|display[-_]?name|nick[-_]?name|seller[-_]?name|chat[-_]?name|profile[-_]?name|owner[-_]?name)/i.test(cls)) {
+        return true;
+      }
+      const href = element.getAttribute?.("href") || "";
+      if (/\/user\/|\/profile\//i.test(href) && (element.textContent || "").trim().length <= 32) {
+        return true;
+      }
+      element = element.parentElement;
+    }
+    return false;
+  }
+
   function translateTextNode(textNode) {
     const original = textNode.nodeValue;
     if (!original || !original.trim()) {
       return;
     }
     if (textNode.parentElement && shouldSkipElement(textNode.parentElement)) {
+      return;
+    }
+    if (isProtectedUsername(original) || isInsideUserIdentity(textNode)) {
       return;
     }
     if (isInsideBreadcrumb(textNode)) {
@@ -342,12 +448,13 @@ const CHOTOT_UK = (() => {
       }
       return;
     }
-    if (
-      isLocationNameOnly(original) ||
-      isAddressText(original) ||
-      isInsideAddress(textNode) ||
-      isPriceText(original)
-    ) {
+    const isAddressLike =
+      !isCompanyLegalText(original) &&
+      (isLocationNameOnly(original) || isAddressText(original) || isInsideAddress(textNode));
+    if (isAddressLike && !isRelativeTimeText(original) && !hasRelativeTimeClause(original)) {
+      return;
+    }
+    if (!isCompanyLegalText(original) && isPriceText(original) && !isRelativeTimeText(original)) {
       return;
     }
 
@@ -359,7 +466,10 @@ const CHOTOT_UK = (() => {
       return;
     }
 
-    let translated = applyDictionary(original);
+    let translated =
+      isAddressLike && hasRelativeTimeClause(original)
+        ? translateTimeClauses(original)
+        : applyDictionary(original);
     if (
       translated.trim() === "Опубліковано" &&
       /^\s*\d/.test(nextSiblingText(textNode)) &&
@@ -393,6 +503,9 @@ const CHOTOT_UK = (() => {
       }
       const original = element.getAttribute(attr);
       if (!original || !original.trim()) {
+        continue;
+      }
+      if (isProtectedUsername(original) || isInsideUserIdentity(element)) {
         continue;
       }
       if (isInsideBreadcrumb(element)) {
@@ -456,12 +569,14 @@ const CHOTOT_UK = (() => {
     if (root.nodeType === Node.ELEMENT_NODE && shouldSkipElement(root)) {
       if (root.tagName === "INPUT" || root.tagName === "TEXTAREA") {
         translateAttributes(root);
+        translateControlLabel(root);
       }
       return;
     }
 
     if (root.nodeType === Node.ELEMENT_NODE) {
       translateAttributes(root);
+      translateControlLabel(root);
       walkShadowAndFrames(root, level);
     }
 
@@ -469,15 +584,21 @@ const CHOTOT_UK = (() => {
       acceptNode(node) {
         if (node.nodeType === Node.TEXT_NODE) {
           const parent = node.parentElement;
-          if (parent && (shouldSkipElement(parent) || isInsideAddress(parent))) {
+          if (parent && shouldSkipElement(parent)) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          if (parent && isInsideAddress(parent) && !isRelativeTimeText(node.nodeValue)) {
             return NodeFilter.FILTER_REJECT;
           }
           return NodeFilter.FILTER_ACCEPT;
         }
         if (node.tagName === "IFRAME") {
+          return NodeFilter.FILTER_ACCEPT;
+        }
+        if (shouldSkipElement(node)) {
           return NodeFilter.FILTER_REJECT;
         }
-        if (shouldSkipElement(node) || isInsideAddress(node)) {
+        if (isInsideAddress(node) && !hasRelativeTimeClause(node.textContent || "")) {
           return NodeFilter.FILTER_REJECT;
         }
         return NodeFilter.FILTER_ACCEPT;
@@ -494,9 +615,89 @@ const CHOTOT_UK = (() => {
         translateTextNode(current);
       } else {
         translateAttributes(current);
+        translateControlLabel(current);
         walkShadowAndFrames(current, level);
       }
       current = tree.nextNode();
+    }
+  }
+
+  const CONTROL_LABEL_TAGS = new Set(["BUTTON", "A", "SPAN", "P", "DIV", "LABEL"]);
+  const INPUT_LABEL_TYPES = new Set(["button", "submit", "reset"]);
+
+  function translateControlLabel(element) {
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    }
+    const tag = element.tagName;
+    const type = (element.getAttribute("type") || (tag === "INPUT" ? "submit" : "")).toLowerCase();
+    if (tag === "INPUT" && INPUT_LABEL_TYPES.has(type) && element.value) {
+      const translatedValue = applyDictionary(element.value);
+      if (translatedValue !== element.value) {
+        element.value = translatedValue;
+      }
+    }
+    if (!CONTROL_LABEL_TAGS.has(tag) && tag !== "INPUT") {
+      return;
+    }
+    if (element.childElementCount > 3) {
+      return;
+    }
+    const raw = (element.textContent || "").replace(/\s+/g, " ").trim();
+    if (!raw || raw.length > 40 || !uiPhraseLookup.has(raw.toLowerCase())) {
+      return;
+    }
+    const translated = applyDictionary(raw);
+    if (translated === raw) {
+      return;
+    }
+    const nodes = collectTextNodes(element);
+    if (nodes.length === 0) {
+      if (element.childElementCount === 0) {
+        element.textContent = translated;
+      }
+      return;
+    }
+    nodes[0].nodeValue = translated;
+    for (let index = 1; index < nodes.length; index += 1) {
+      nodes[index].nodeValue = "";
+    }
+  }
+
+  function forceTranslateUiLabels(root) {
+    if (!root || !root.querySelectorAll) {
+      return;
+    }
+    const candidates = root.querySelectorAll(
+      "button, [role='button'], input[type='button'], input[type='submit'], a, span, p, label",
+    );
+    for (const element of candidates) {
+      translateControlLabel(element);
+    }
+  }
+
+  function walkAllSameOriginFrames(win, depth) {
+    if (!win || (depth || 0) > 5) {
+      return;
+    }
+    try {
+      const doc = win.document;
+      if (doc?.body) {
+        walk(doc.body);
+        forceTranslateUiLabels(doc);
+      }
+      const frames = doc ? doc.querySelectorAll("iframe") : [];
+      for (const frame of frames) {
+        try {
+          if (frame.contentWindow && frame.contentWindow !== win) {
+            walkAllSameOriginFrames(frame.contentWindow, (depth || 0) + 1);
+          }
+        } catch {
+          // Cross-origin frame.
+        }
+      }
+    } catch {
+      // Frame is not readable.
     }
   }
 
@@ -529,7 +730,7 @@ const CHOTOT_UK = (() => {
   }
 
   function isNoticeText(text) {
-    return /đưa vào danh sách|xóa khỏi danh sách|Đang tải|Đang lưu|Đang xử lý|Vui lòng đợi|Vui lòng chờ/i.test(text);
+    return /đưa vào danh sách|xóa khỏi danh sách|Đang tải|Đang lưu|Đang xử lý|Vui lòng đợi|Vui lòng chờ|không thể nhận tin nhắn|vi phạm quy định/i.test(text);
   }
 
   function tryTranslateNotice(element) {
@@ -582,6 +783,16 @@ const CHOTOT_UK = (() => {
     if (element.shadowRoot) {
       walk(element.shadowRoot, (depth || 0) + 1);
     }
+    if (element.tagName === "IFRAME") {
+      try {
+        const frameDoc = element.contentDocument;
+        if (frameDoc?.body) {
+          walk(frameDoc.body, (depth || 0) + 1);
+        }
+      } catch {
+        // Cross-origin chat frames are translated via document-start / all_frames.
+      }
+    }
   }
 
   function translateDocument() {
@@ -597,7 +808,9 @@ const CHOTOT_UK = (() => {
     }
     if (document.body) {
       walk(document.body);
+      forceTranslateUiLabels(document);
     }
+    walkAllSameOriginFrames(window, 0);
     isMutating = false;
   }
 
@@ -692,7 +905,11 @@ const CHOTOT_UK = (() => {
       isMutating = true;
       for (const root of roots) {
         walk(root);
+        const labelRoot =
+          root.querySelectorAll ? root : root.parentElement || document;
+        forceTranslateUiLabels(labelRoot);
       }
+      forceTranslateUiLabels(document);
       isMutating = false;
     }, 16);
   }
@@ -775,9 +992,9 @@ const CHOTOT_UK = (() => {
     if (globalThis.ChototUkNative) {
       isEnabled = true;
       try {
-        useOnline = globalThis.ChototUkNative.isOnlineEnabled() !== false;
+        useOnline = globalThis.ChototUkNative.isOnlineEnabled() === true;
       } catch (_error) {
-        useOnline = true;
+        useOnline = false;
       }
       return;
     }
@@ -786,9 +1003,9 @@ const CHOTOT_UK = (() => {
       useOnline = false;
       return;
     }
-    const stored = await chrome.storage.sync.get({ enabled: true, useOnline: true });
+    const stored = await chrome.storage.sync.get({ enabled: true, useOnline: false });
     isEnabled = stored.enabled !== false;
-    useOnline = stored.useOnline !== false;
+    useOnline = stored.useOnline === true;
   }
 
   function setEnabled(nextEnabled) {

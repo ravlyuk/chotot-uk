@@ -11,8 +11,8 @@ android {
         applicationId = "ua.chotot.uk"
         minSdk = 26
         targetSdk = 35
-        versionCode = 19
-        versionName = "1.0.18"
+        versionCode = 40
+        versionName = "1.0.39"
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")
         }
@@ -51,6 +51,7 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.webkit:webkit:1.12.1")
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("com.google.mlkit:translate:17.0.3")

@@ -19,7 +19,6 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebView.WebViewTransport
 import android.webkit.WebViewClient
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -85,14 +84,6 @@ class MainActivity : AppCompatActivity() {
                     mainWebView.loadUrl(HOME_URL)
                     true
                 }
-                R.id.action_refresh -> {
-                    if (isOauthPopupVisible()) {
-                        popupWebView.reload()
-                    } else {
-                        mainWebView.reload()
-                    }
-                    true
-                }
                 R.id.action_online -> {
                     val enabled = !item.isChecked
                     item.isChecked = enabled
@@ -110,6 +101,7 @@ class MainActivity : AppCompatActivity() {
         }
         binding.popupToolbar.setNavigationOnClickListener { hideOauthPopup() }
         binding.popupToolbar.navigationContentDescription = getString(R.string.oauth_popup_close)
+        setupSwipeRefresh()
 
         WebView.setWebContentsDebuggingEnabled(true)
         CookieManager.getInstance().setAcceptCookie(true)
@@ -153,8 +145,28 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
     }
 
+    private fun setupSwipeRefresh() {
+        binding.swipeRefresh.setColorSchemeResources(R.color.brand_blue)
+        binding.swipeRefresh.setProgressBackgroundColorSchemeResource(R.color.brand_yellow)
+        binding.swipeRefresh.setOnChildScrollUpCallback { _, _ ->
+            mainWebView.canScrollVertically(-1)
+        }
+        binding.swipeRefresh.setOnRefreshListener {
+            if (isOauthPopupVisible()) {
+                binding.swipeRefresh.isRefreshing = false
+                return@setOnRefreshListener
+            }
+            mainWebView.reload()
+        }
+    }
+
+    private fun stopRefreshing() {
+        binding.swipeRefresh.isRefreshing = false
+    }
+
     private fun attachMainWebView(webView: WebView) {
         configureWebView(webView, supportsPopups = true)
+        webView.overScrollMode = View.OVER_SCROLL_NEVER
         installDocumentStartScripts(webView)
         webView.addJavascriptInterface(bridge, "ChototUkNative")
         webView.webViewClient = ChototWebViewClient(injectTranslator = true)
@@ -172,6 +184,7 @@ class MainActivity : AppCompatActivity() {
     private fun recoverAfterRendererCrash() {
         val restoreUrl = lastMainUrl.ifBlank { HOME_URL }
         binding.popupContainer.visibility = View.GONE
+        binding.swipeRefresh.isEnabled = true
         destroyPopupProbe()
         replaceMainWebView()
         replacePopupWebView()
@@ -179,17 +192,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun replaceMainWebView() {
-        val container = binding.webContainer
+        val container = binding.swipeRefresh
         val old = mainWebView
         runCatching { old.removeJavascriptInterface("ChototUkNative") }
         container.removeView(old)
         runCatching { old.destroy() }
         val next = WebView(this)
-        next.layoutParams = FrameLayout.LayoutParams(
+        next.layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
         )
-        container.addView(next, 0)
+        container.addView(next)
         mainWebView = next
         attachMainWebView(mainWebView)
     }
@@ -268,12 +281,17 @@ class MainActivity : AppCompatActivity() {
     private fun applySystemBarInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            val isImeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
             view.updatePadding(
                 left = bars.left,
                 top = bars.top,
                 right = bars.right,
-                bottom = bars.bottom,
+                bottom = maxOf(bars.bottom, ime.bottom),
             )
+            if (!isOauthPopupVisible()) {
+                binding.swipeRefresh.isEnabled = !isImeVisible
+            }
             WindowInsetsCompat.CONSUMED
         }
     }
@@ -283,6 +301,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showOauthPopup() {
+        binding.swipeRefresh.isEnabled = false
+        binding.swipeRefresh.isRefreshing = false
         binding.popupContainer.visibility = View.VISIBLE
     }
 
@@ -291,6 +311,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         binding.popupContainer.visibility = View.GONE
+        binding.swipeRefresh.isEnabled = true
         runCatching { popupWebView.loadUrl("about:blank") }
     }
 
@@ -458,6 +479,7 @@ class MainActivity : AppCompatActivity() {
         override fun onPageFinished(view: WebView, url: String) {
             if (view === mainWebView) {
                 binding.progress.visibility = View.GONE
+                stopRefreshing()
             }
             if (!injectTranslator || !isChototHost(Uri.parse(url).host.orEmpty())) {
                 return
@@ -486,6 +508,9 @@ class MainActivity : AppCompatActivity() {
         override fun onProgressChanged(view: WebView?, newProgress: Int) {
             binding.progress.progress = newProgress
             binding.progress.visibility = if (newProgress in 1..99) View.VISIBLE else View.GONE
+            if (view === mainWebView && newProgress >= 100) {
+                stopRefreshing()
+            }
         }
 
         override fun onCreateWindow(
