@@ -3,13 +3,18 @@ package ua.chotot.uk
 import android.app.Application
 
 class ChototUkApp : Application() {
-    lateinit var translator: HybridTranslator
-        private set
+    private val translatorLock = Any()
+    private var translatorInstance: HybridTranslator? = null
 
-    override fun onCreate() {
-        super.onCreate()
-        val onDevice = OnDeviceTranslator()
-        translator = HybridTranslator(onDevice, GoogleTranslator())
-        onDevice.prepare()
-    }
+    val translator: HybridTranslator
+        get() {
+            synchronized(translatorLock) {
+                translatorInstance?.let { return it }
+                val onDevice = OnDeviceTranslator()
+                return HybridTranslator(onDevice, GoogleTranslator()).also { hybrid ->
+                    translatorInstance = hybrid
+                    onDevice.prepare()
+                }
+            }
+        }
 }

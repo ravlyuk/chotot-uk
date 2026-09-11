@@ -5,6 +5,8 @@
   dismissAppPromoCookie();
   injectPromoStyle();
   keepComposerVisible();
+  blockChatLabelSwipe();
+  watchChatLabelSheet();
 
   const translateSoon = debounce(() => {
     hideAppPromo();
@@ -124,8 +126,19 @@
     return current;
   }
 
-  function hideNode(node) {
+  function isFullPageRoot(node) {
     if (!node || node === document.body || node === document.documentElement) {
+      return true;
+    }
+    if (node.parentElement !== document.body) {
+      return false;
+    }
+    const rect = node.getBoundingClientRect();
+    return rect.height > window.innerHeight * 0.65 && rect.width > window.innerWidth * 0.65;
+  }
+
+  function hideNode(node) {
+    if (!node || isFullPageRoot(node)) {
       return;
     }
     node.style.setProperty("display", "none", "important");
@@ -144,8 +157,8 @@
         continue;
       }
       if (
-        /(?:Tiếp tục|Продовжити)\s+(?:với trình duyệt|в браузері|з браузером)/i.test(text) ||
-        /với trình duyệt/i.test(text)
+        /(?:Tiếp tục|Продовжити|Ở lại|Mở|Xem)\s+(?:với trình duyệt|trên trình duyệt|bằng trình duyệt|в браузері|з браузером)/i.test(text) ||
+        /in your browser/i.test(text)
       ) {
         didClickContinueInBrowser = true;
         node.click();
@@ -166,17 +179,186 @@
       ) {
         continue;
       }
-      hideNode(findPromoRoot(node));
+      const root = findPromoRoot(node);
+      if (!isFullPageRoot(root)) {
+        hideNode(root);
+      }
       break;
     }
   }
 
   function hideAppPromo() {
     dismissAppPromoCookie();
+    clickContinueInBrowser();
     document.querySelectorAll(
       ".showSafetyM, .showSafetyD, a[href^='chotot-app:'], a[href^='intent:'], a[href*='web_to_app'], a[href*='utm_medium=top_banner'], img[src*='appstore-dowload'], img[src*='googleplay-dowload'], img[src*='uu-dai'], img[src*='uudai'], img[src*='floating_button'], a[href*='uu-dai']",
-    ).forEach((node) => hideNode(findPromoRoot(node)));
+    ).forEach((node) => {
+      const root = findPromoRoot(node);
+      hideNode(isFullPageRoot(root) ? node : root);
+    });
     hideOpenAppInterstitial();
+    dismissChatLabelSheet();
+    recoverIfPageBlank();
+  }
+
+  let recoverBlankTimer = 0;
+
+  function recoverIfPageBlank() {
+    window.clearTimeout(recoverBlankTimer);
+    recoverBlankTimer = window.setTimeout(() => {
+      const body = document.body;
+      if (!body) {
+        return;
+      }
+      const text = (body.innerText || "").replace(/\s+/g, " ").trim();
+      if (text.length > 24) {
+        return;
+      }
+      const href = String(location.href || "");
+      if (/^about:/i.test(href) || /(?:dang-tin|dangtin|posting|web_to_app|app\.link)/i.test(href)) {
+        location.replace("https://www.chotot.com/dashboard");
+      }
+    }, 450);
+  }
+
+  function findScrollParent(element) {
+    let current = element;
+    while (current && current !== document.body && current !== document.documentElement) {
+      const style = window.getComputedStyle(current);
+      const canScroll =
+        (style.overflowY === "auto" || style.overflowY === "scroll" || style.overflowY === "overlay") &&
+        current.scrollHeight > current.clientHeight + 2;
+      if (canScroll) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+
+  function blockChatLabelSwipe() {
+    let startX = 0;
+    let startY = 0;
+    let scrollParent = null;
+    let dismissTimer = 0;
+
+    const onStart = (event) => {
+      const point = event.touches ? event.touches[0] : event;
+      if (!point) {
+        return;
+      }
+      startX = point.clientX;
+      startY = point.clientY;
+      scrollParent = findScrollParent(event.target);
+    };
+
+    const onMove = (event) => {
+      const point = event.touches ? event.touches[0] : event;
+      if (!point) {
+        return;
+      }
+      const dx = point.clientX - startX;
+      const dy = point.clientY - startY;
+      const atTop = !scrollParent || scrollParent.scrollTop <= 1;
+      if (!atTop || dy < 6 || dy <= Math.abs(dx)) {
+        return;
+      }
+      event.stopImmediatePropagation();
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      dismissChatLabelSheet();
+      window.clearTimeout(dismissTimer);
+      dismissTimer = window.setTimeout(dismissChatLabelSheet, 50);
+    };
+
+    document.addEventListener("touchstart", onStart, { capture: true, passive: true });
+    document.addEventListener("touchmove", onMove, { capture: true, passive: false });
+    document.addEventListener("pointerdown", onStart, { capture: true, passive: true });
+    document.addEventListener("pointermove", onMove, { capture: true, passive: false });
+  }
+
+  function isLabelSheetTitle(text) {
+    return /^(?:Gắn phân loại|Додати мітку)$/i.test((text || "").replace(/\s+/g, " ").trim());
+  }
+
+  function looksLikeLabelSheet(text) {
+    const normalized = (text || "").replace(/\s+/g, " ").trim();
+    return (
+      /(?:Gắn phân loại|Додати мітку)/i.test(normalized) &&
+      /(?:Quản lý phân loại|Керувати мітками|Lưu|Зберегти)/i.test(normalized)
+    );
+  }
+
+  function hideSheetRoot(node) {
+    if (!node || node === document.body || node === document.documentElement) {
+      return;
+    }
+    hideNode(node);
+    const parent = node.parentElement;
+    if (!parent || parent === document.body || parent === document.documentElement) {
+      return;
+    }
+    const style = window.getComputedStyle(parent);
+    if (
+      (style.position === "fixed" || style.position === "absolute") &&
+      parent.childElementCount <= 6
+    ) {
+      hideNode(parent);
+    }
+  }
+
+  function dismissChatLabelSheet() {
+    const titles = document.querySelectorAll("h1, h2, h3, h4, h5, [role='heading'], p, span, button, strong");
+    for (const title of titles) {
+      if (!isLabelSheetTitle(title.textContent)) {
+        continue;
+      }
+      const root = title.closest(
+        "[role='dialog'], [role='alertdialog'], [aria-modal='true']",
+      ) || findPromoRoot(title);
+      const closer = (root || title.parentElement)?.querySelector(
+        "button[aria-label='Close'], button[aria-label='Đóng'], button[aria-label='Закрити']",
+      );
+      if (closer) {
+        closer.click();
+      }
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      hideSheetRoot(root);
+    }
+    const overlays = document.querySelectorAll(
+      "[role='dialog'], [role='alertdialog'], [aria-modal='true'], [class*='drawer'], [class*='sheet'], [class*='modal'], [class*='overlay']",
+    );
+    for (const node of overlays) {
+      if (looksLikeLabelSheet(node.innerText || node.textContent)) {
+        hideSheetRoot(node);
+      }
+    }
+  }
+
+  function watchChatLabelSheet() {
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        const nodes = mutation.type === "childList" ? mutation.addedNodes : [mutation.target];
+        for (const node of nodes) {
+          if (!node || node.nodeType !== 1) {
+            continue;
+          }
+          const text = node.textContent || "";
+          if (!/(?:Gắn phân loại|Додати мітку)/i.test(text)) {
+            continue;
+          }
+          dismissChatLabelSheet();
+          return;
+        }
+      }
+    });
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style", "hidden", "aria-hidden"],
+    });
   }
 
   hideAppPromo();
@@ -184,18 +366,10 @@
   Promise.resolve(CHOTOT_UK.loadSettings()).then(() => CHOTOT_UK.translateDocument());
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => {
-      hideAppPromo();
-      CHOTOT_UK.translateDocument();
-    }, { once: true });
-  } else {
-    CHOTOT_UK.translateDocument();
+    document.addEventListener("DOMContentLoaded", hideAppPromo, { once: true });
   }
 
-  window.addEventListener("load", () => {
-    hideAppPromo();
-    CHOTOT_UK.translateDocument();
-  });
+  window.addEventListener("load", hideAppPromo);
   window.addEventListener("popstate", translateSoon);
   window.addEventListener("hashchange", translateSoon);
 
@@ -214,9 +388,6 @@
     history[methodName] = patched;
   }
 
-  setTimeout(() => {
-    hideAppPromo();
-    CHOTOT_UK.translateDocument();
-  }, 400);
+  setTimeout(hideAppPromo, 400);
   setTimeout(hideAppPromo, 3200);
 })();

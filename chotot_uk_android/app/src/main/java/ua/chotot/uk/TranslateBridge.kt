@@ -14,7 +14,7 @@ import java.lang.ref.WeakReference
 
 class TranslateBridge(
     webView: WebView,
-    private val translator: BatchTranslator,
+    private val translatorProvider: () -> BatchTranslator,
     private val prefs: SharedPreferences,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -29,12 +29,15 @@ class TranslateBridge(
 
     @JavascriptInterface
     fun translateBatch(requestId: String, textsJson: String) {
+        if (!isOnlineEnabled()) {
+            return
+        }
         scope.launch {
             val payload = runCatching {
                 val texts = JSONArray(textsJson).let { array ->
                     List(array.length()) { index -> array.getString(index) }
                 }
-                val translations = translator.translateBatch(texts)
+                val translations = translatorProvider().translateBatch(texts)
                 JSONObject()
                     .put("ok", true)
                     .put("translations", JSONArray(translations))

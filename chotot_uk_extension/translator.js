@@ -34,13 +34,36 @@ const CHOTOT_UK = (() => {
       target,
       sourceLength: source.length,
       always: alwaysPhrases.has(source),
+      first: source[0].toLocaleLowerCase("vi"),
       re: new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(source)}(?![\\p{L}\\p{N}])`, "giu"),
     }));
+  const phrasesByFirst = new Map();
+  for (const item of phraseRegexes) {
+    const bucket = phrasesByFirst.get(item.first);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      phrasesByFirst.set(item.first, [item]);
+    }
+  }
 
   const memoryCache = new Map();
+  const dictCache = new Map();
+  const lastTranslated = new WeakMap();
+  const DICT_CACHE_LIMIT = 5000;
+  const CYRILLIC_RE = /[А-ЯІЇЄҐа-яіїєґ]/;
+  const LATIN_RE = /[A-Za-zÀ-ỹ]/;
+  const OBSERVE_OPTIONS = {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ATTRS_TO_TRANSLATE,
+  };
   let isEnabled = true;
   let useOnline = false;
   let isMutating = false;
+  let mutationObserver = null;
   const pendingOnline = new Map();
   const onlineResolvers = new Map();
   const pendingWalkRoots = new Set();
@@ -68,9 +91,31 @@ const CHOTOT_UK = (() => {
     return trimmed.length > 42 && /[.!?]/.test(trimmed);
   }
 
+  function needsDictionary(text) {
+    if (VIETNAMESE_RE.test(text)) {
+      return true;
+    }
+    return CYRILLIC_RE.test(text) && LATIN_RE.test(text);
+  }
+
+  function rememberDict(source, result) {
+    if (dictCache.size >= DICT_CACHE_LIMIT) {
+      dictCache.clear();
+    }
+    dictCache.set(source, result);
+    return result;
+  }
+
   function applyDictionary(text) {
     if (!text || !text.trim()) {
       return text;
+    }
+    const cached = dictCache.get(text);
+    if (cached !== undefined) {
+      return cached;
+    }
+    if (!needsDictionary(text)) {
+      return rememberDict(text, text);
     }
 
     const skipFragments = isFreeformText(text);
@@ -81,16 +126,29 @@ const CHOTOT_UK = (() => {
       }
       result = result.replace(pattern.re, pattern.to);
     }
-    for (const { re, target, sourceLength, always } of phraseRegexes) {
-      if (skipFragments && sourceLength < 28 && !always) {
+    const seenFirst = new Set();
+    const lower = result.toLocaleLowerCase("vi");
+    for (let index = 0; index < lower.length; index += 1) {
+      const first = lower[index];
+      if (seenFirst.has(first)) {
         continue;
       }
-      re.lastIndex = 0;
-      result = result.replace(re, (match) => preserveCase(match, target));
+      const bucket = phrasesByFirst.get(first);
+      if (!bucket) {
+        continue;
+      }
+      seenFirst.add(first);
+      for (const { re, target, sourceLength, always } of bucket) {
+        if (skipFragments && sourceLength < 28 && !always) {
+          continue;
+        }
+        re.lastIndex = 0;
+        result = result.replace(re, (match) => preserveCase(match, target));
+      }
     }
     result = result.replace(/Опубліковано(?=\d)/g, "Опубліковано ");
     result = result.replace(/\bVNĐ\b/g, "VND");
-    return result;
+    return rememberDict(text, result);
   }
 
   function stillLooksVietnamese(text) {
@@ -366,12 +424,211 @@ const CHOTOT_UK = (() => {
       }
       current = current.nextSibling;
     }
+    const parent = node.parentElement;
+    if (!parent) {
+      return "";
+    }
+    let uncle = parent.nextSibling;
+    while (uncle) {
+      const text = uncle.nodeType === Node.TEXT_NODE ? uncle.nodeValue : uncle.textContent;
+      if (text && text.trim()) {
+        return text;
+      }
+      uncle = uncle.nextSibling;
+    }
     return "";
+  }
+
+  const DURATION_UNITS = {
+    ngày: "дн.",
+    tuần: "тиж.",
+    tháng: "міс.",
+    năm: "р.",
+    giờ: "год",
+    phút: "хв",
+    giây: "с",
+  };
+
+  function previousSiblingText(node) {
+    let current = node.previousSibling;
+    while (current) {
+      const text = current.nodeType === Node.TEXT_NODE ? current.nodeValue : current.textContent;
+      if (text && text.trim()) {
+        return text;
+      }
+      current = current.previousSibling;
+    }
+    const parent = node.parentElement;
+    if (!parent) {
+      return "";
+    }
+    let uncle = parent.previousSibling;
+    while (uncle) {
+      const text = uncle.nodeType === Node.TEXT_NODE ? uncle.nodeValue : uncle.textContent;
+      if (text && text.trim()) {
+        return text;
+      }
+      uncle = uncle.previousSibling;
+    }
+    return "";
+  }
+
+  function looksLikeDate(text) {
+    return /\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/.test((text || "").trim());
+  }
+
+  function translateSplitDateRange(textNode) {
+    const raw = textNode.nodeValue || "";
+    if (!/^\s*đến\s*$/i.test(raw)) {
+      return false;
+    }
+    const prev = previousSiblingText(textNode);
+    const next = nextSiblingText(textNode);
+    if (!looksLikeDate(prev) || !looksLikeDate(next)) {
+      return false;
+    }
+    textNode.nodeValue = raw.replace(/đến/i, "–");
+    lastTranslated.set(textNode, textNode.nodeValue);
+    return true;
+  }
+
+  function firstTextNodeWithContent(root) {
+    if (!root) {
+      return null;
+    }
+    if (root.nodeType === Node.TEXT_NODE) {
+      return root.nodeValue && root.nodeValue.trim() ? root : null;
+    }
+    if (root.nodeType !== Node.ELEMENT_NODE) {
+      return null;
+    }
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let current = walker.nextNode();
+    while (current) {
+      if (current.nodeValue && current.nodeValue.trim()) {
+        return current;
+      }
+      current = walker.nextNode();
+    }
+    return null;
+  }
+
+  function nextSignificantTextNode(node) {
+    let current = node.nextSibling;
+    while (current) {
+      const found = firstTextNodeWithContent(current);
+      if (found) {
+        return found;
+      }
+      current = current.nextSibling;
+    }
+    const parent = node.parentElement;
+    if (!parent) {
+      return null;
+    }
+    let uncle = parent.nextSibling;
+    while (uncle) {
+      const found = firstTextNodeWithContent(uncle);
+      if (found) {
+        return found;
+      }
+      uncle = uncle.nextSibling;
+    }
+    return null;
+  }
+
+  function blankTextNode(textNode) {
+    if (!textNode) {
+      return;
+    }
+    textNode.nodeValue = "";
+    lastTranslated.set(textNode, "");
+  }
+
+  function translateSplitDuration(textNode) {
+    const raw = textNode.nodeValue || "";
+    const match = raw.match(/^\s*(ngày|tuần|tháng|năm|giờ|phút|giây)\s*[)\uFF09]?\s*$/i);
+    if (!match) {
+      return false;
+    }
+    const unit = DURATION_UNITS[match[1].toLocaleLowerCase("vi")];
+    if (!unit) {
+      return false;
+    }
+    const prev = previousSiblingText(textNode).replace(/\s+/g, " ").trim();
+    if (!/(?:^|[(\s])\d+\s*\)?$/u.test(prev) && !/^một$/i.test(prev)) {
+      return false;
+    }
+    textNode.nodeValue = raw.replace(match[1], unit);
+    lastTranslated.set(textNode, textNode.nodeValue);
+    return true;
+  }
+
+  function translateSplitCountUnit(textNode) {
+    const raw = textNode.nodeValue || "";
+    if (!/^\s*lần\s*$/i.test(raw)) {
+      return false;
+    }
+    const prev = previousSiblingText(textNode).replace(/\s+/g, " ").trim();
+    const num = prev.match(/(\d+)\s*$/);
+    if (!num || typeof ukPlural !== "function") {
+      return false;
+    }
+    textNode.nodeValue = raw.replace(/lần/i, ukPlural(num[1], "раз", "рази", "разів"));
+    lastTranslated.set(textNode, textNode.nodeValue);
+    return true;
+  }
+
+  function translateSplitSelectedBoost(textNode) {
+    const raw = textNode.nodeValue || "";
+    const match = raw.match(/^\s*(?:Đã chọn|Обрано)\s+(\d+)\s*(?:lần|разів|рази|раз)?\s*$/i);
+    if (!match || typeof ukPlural !== "function") {
+      return false;
+    }
+    const next = nextSignificantTextNode(textNode);
+    const nextText = (next?.nodeValue || "").replace(/\s+/g, " ").trim();
+    const hasUnitInNode = /(?:lần|разів|рази|раз)/i.test(raw);
+    if (!hasUnitInNode && !/^(?:lần|разів|рази|раз|Підняти|đẩy tin)\b/i.test(nextText)) {
+      return false;
+    }
+    const phrase = `Обрано ${match[1]} ${ukPlural(match[1], "підняття", "підняття", "піднять")}`;
+    textNode.nodeValue = raw.replace(
+      /^\s*(?:Đã chọn|Обрано)\s+\d+\s*(?:lần|разів|рази|раз)?\s*$/i,
+      phrase,
+    );
+    lastTranslated.set(textNode, textNode.nodeValue);
+    if (next && /^(?:lần|разів|рази|раз)\s*$/i.test(nextText)) {
+      blankTextNode(next);
+      const after = nextSignificantTextNode(next);
+      const afterText = (after?.nodeValue || "").replace(/\s+/g, " ").trim();
+      if (after && /^(?:Підняти|đẩy tin)\s*$/i.test(afterText)) {
+        blankTextNode(after);
+      }
+    } else if (next && /^(?:Підняти|đẩy tin)\s*$/i.test(nextText)) {
+      blankTextNode(next);
+    }
+    return true;
   }
 
   const uiPhraseLookup = new Set(
     Object.keys(CHOTOT_UK_PHRASES).map((key) => key.toLowerCase()),
   );
+
+  function isDictionaryUiValue(text) {
+    const trimmed = (text || "").replace(/\s+/g, " ").trim();
+    return trimmed.length > 0 && trimmed.length <= 80 && uiPhraseLookup.has(trimmed.toLowerCase());
+  }
+
+  const TRANSLATABLE_UI_RE =
+    /lượt\s*xem|tin\s*đăng|Thứ\s*(?:[2-7]|hai|ba|tư|năm|sáu|bảy)|Chủ\s*nhật|Tối ưu|Thống kê|Hiệu quả|Đã chọn|kể từ lúc|giảm đáng|gần nhất|Trang đầu|Trang cuối|sản phẩm trên|cần cải thiện|nhận được|lượt nhấn|hồ sơ|gợi nhớ|bảo mật|Giới tính|ho[áa] đơn|yêu thích|thay đổi|Họ và tên|Thiết lập|đang ở|Trang\s+\d+|của bạn|Đồ điện tử|Đã sử dụng|Dòng khác|Hàn Quốc|Xanh dương|Tạm\s*ổn|người dùng|Chọn\s+|Tải hình|Trở về|Bắt đầu|hoàn thiện|viết giúp|hình ảnh|Kiểm tra|chuyển khoản|quy đổi|GTGT|thành công|đơn hàng|hình thức|tiền mặt|mã QR|Linh hoạt|Đang thực hiện|Không tìm thấy|Quay lại|đường dẫn/i;
+
+  function looksLikeTranslatableUi(text) {
+    const value = (text || "").replace(/\s+/g, " ").trim();
+    if (!value) {
+      return false;
+    }
+    return isDictionaryUiValue(value) || TRANSLATABLE_UI_RE.test(value);
+  }
 
   function isProtectedUsername(text) {
     const trimmed = (text || "").trim();
@@ -435,10 +692,21 @@ const CHOTOT_UK = (() => {
     if (!original || !original.trim()) {
       return;
     }
+    if (lastTranslated.get(textNode) === original) {
+      return;
+    }
     if (textNode.parentElement && shouldSkipElement(textNode.parentElement)) {
       return;
     }
-    if (isProtectedUsername(original) || isInsideUserIdentity(textNode)) {
+    if (isProtectedUsername(original) || (!isDictionaryUiValue(original) && isInsideUserIdentity(textNode))) {
+      return;
+    }
+    if (
+      translateSplitDateRange(textNode) ||
+      translateSplitSelectedBoost(textNode) ||
+      translateSplitDuration(textNode) ||
+      translateSplitCountUnit(textNode)
+    ) {
       return;
     }
     if (isInsideBreadcrumb(textNode)) {
@@ -450,6 +718,7 @@ const CHOTOT_UK = (() => {
     }
     const isAddressLike =
       !isCompanyLegalText(original) &&
+      !looksLikeTranslatableUi(original) &&
       (isLocationNameOnly(original) || isAddressText(original) || isInsideAddress(textNode));
     if (isAddressLike && !isRelativeTimeText(original) && !hasRelativeTimeClause(original)) {
       return;
@@ -480,6 +749,7 @@ const CHOTOT_UK = (() => {
     if (translated !== original) {
       textNode.nodeValue = translated;
     }
+    lastTranslated.set(textNode, textNode.nodeValue);
     if (!stillLooksVietnamese(translated)) {
       memoryCache.set(original, translated);
       return;
@@ -584,21 +854,30 @@ const CHOTOT_UK = (() => {
       acceptNode(node) {
         if (node.nodeType === Node.TEXT_NODE) {
           const parent = node.parentElement;
-          if (parent && shouldSkipElement(parent)) {
+          if (parent && shouldSkipElement(parent) && parent.tagName !== "INPUT" && parent.tagName !== "TEXTAREA") {
             return NodeFilter.FILTER_REJECT;
           }
-          if (parent && isInsideAddress(parent) && !isRelativeTimeText(node.nodeValue)) {
+          if (
+            parent &&
+            isInsideAddress(parent) &&
+            !isRelativeTimeText(node.nodeValue) &&
+            !looksLikeTranslatableUi(node.nodeValue)
+          ) {
             return NodeFilter.FILTER_REJECT;
           }
           return NodeFilter.FILTER_ACCEPT;
         }
-        if (node.tagName === "IFRAME") {
+        if (node.tagName === "IFRAME" || node.tagName === "INPUT" || node.tagName === "TEXTAREA") {
           return NodeFilter.FILTER_ACCEPT;
         }
         if (shouldSkipElement(node)) {
           return NodeFilter.FILTER_REJECT;
         }
-        if (isInsideAddress(node) && !hasRelativeTimeClause(node.textContent || "")) {
+        if (
+          isInsideAddress(node) &&
+          !hasRelativeTimeClause(node.textContent || "") &&
+          !looksLikeTranslatableUi(node.textContent || "")
+        ) {
           return NodeFilter.FILTER_REJECT;
         }
         return NodeFilter.FILTER_ACCEPT;
@@ -613,6 +892,9 @@ const CHOTOT_UK = (() => {
       }
       if (current.nodeType === Node.TEXT_NODE) {
         translateTextNode(current);
+      } else if (current.tagName === "INPUT" || current.tagName === "TEXTAREA") {
+        translateAttributes(current);
+        translateControlLabel(current);
       } else {
         translateAttributes(current);
         translateControlLabel(current);
@@ -631,17 +913,53 @@ const CHOTOT_UK = (() => {
     }
     const tag = element.tagName;
     const type = (element.getAttribute("type") || (tag === "INPUT" ? "submit" : "")).toLowerCase();
-    if (tag === "INPUT" && INPUT_LABEL_TYPES.has(type) && element.value) {
-      const translatedValue = applyDictionary(element.value);
-      if (translatedValue !== element.value) {
-        element.value = translatedValue;
+    if (tag === "INPUT" && element.value) {
+      const isButtonValue = INPUT_LABEL_TYPES.has(type);
+      const raw = element.value.trim();
+      const isChoiceValue =
+        element.readOnly ||
+        element.disabled ||
+        element.getAttribute("role") === "combobox" ||
+        Boolean(element.getAttribute("aria-haspopup")) ||
+        uiPhraseLookup.has(raw.toLowerCase());
+      if (
+        (isButtonValue || isChoiceValue) &&
+        !isPriceText(element.value) &&
+        !isAddressText(element.value) &&
+        !isLocationNameOnly(element.value)
+      ) {
+        const translatedValue = applyDictionary(element.value);
+        if (translatedValue !== element.value) {
+          element.value = translatedValue;
+        }
       }
     }
     if (!CONTROL_LABEL_TAGS.has(tag) && tag !== "INPUT") {
       return;
     }
-    if (element.childElementCount > 3) {
+    if (element.childElementCount > 6) {
       return;
+    }
+    const nodes = collectTextNodes(element);
+    if (nodes.length > 1 && nodes.length <= 6 && (element.textContent || "").length <= 120) {
+      let changed = false;
+      for (const node of nodes) {
+        const original = node.nodeValue;
+        if (!original || !original.trim()) {
+          continue;
+        }
+        if (isPriceText(original) || isAddressText(original) || isLocationNameOnly(original)) {
+          continue;
+        }
+        const translated = applyDictionary(original);
+        if (translated !== original) {
+          node.nodeValue = translated;
+          changed = true;
+        }
+      }
+      if (changed) {
+        return;
+      }
     }
     const raw = (element.textContent || "").replace(/\s+/g, " ").trim();
     if (!raw || raw.length > 40 || !uiPhraseLookup.has(raw.toLowerCase())) {
@@ -651,7 +969,6 @@ const CHOTOT_UK = (() => {
     if (translated === raw) {
       return;
     }
-    const nodes = collectTextNodes(element);
     if (nodes.length === 0) {
       if (element.childElementCount === 0) {
         element.textContent = translated;
@@ -669,7 +986,7 @@ const CHOTOT_UK = (() => {
       return;
     }
     const candidates = root.querySelectorAll(
-      "button, [role='button'], input[type='button'], input[type='submit'], a, span, p, label",
+      "button, [role='button'], [role='combobox'], [aria-haspopup], input[type='button'], input[type='submit'], input[readonly], a, span, p, label, [class*='tag' i], [class*='chip' i]",
     );
     for (const element of candidates) {
       translateControlLabel(element);
@@ -684,7 +1001,6 @@ const CHOTOT_UK = (() => {
       const doc = win.document;
       if (doc?.body) {
         walk(doc.body);
-        forceTranslateUiLabels(doc);
       }
       const frames = doc ? doc.querySelectorAll("iframe") : [];
       for (const frame of frames) {
@@ -795,23 +1111,64 @@ const CHOTOT_UK = (() => {
     }
   }
 
+  function pauseObserver() {
+    mutationObserver?.disconnect();
+  }
+
+  function resumeObserver() {
+    if (!mutationObserver || !document.documentElement) {
+      return;
+    }
+    mutationObserver.observe(document.documentElement, OBSERVE_OPTIONS);
+  }
+
+  function runSilent(fn) {
+    isMutating = true;
+    pauseObserver();
+    try {
+      fn();
+    } finally {
+      isMutating = false;
+      resumeObserver();
+    }
+  }
+
+  let documentWalkPending = false;
+  let documentWalkAgain = false;
+
   function translateDocument() {
     if (!isEnabled || !document.documentElement) {
       return;
     }
-    isMutating = true;
-    if (document.title) {
-      const nextTitle = applyDictionary(document.title);
-      if (nextTitle !== document.title) {
-        document.title = nextTitle;
+    if (documentWalkPending) {
+      documentWalkAgain = true;
+      return;
+    }
+    documentWalkPending = true;
+    const run = () => {
+      runSilent(() => {
+        if (document.title) {
+          const nextTitle = applyDictionary(document.title);
+          if (nextTitle !== document.title) {
+            document.title = nextTitle;
+          }
+        }
+        if (document.body) {
+          walk(document.body);
+        }
+        walkAllSameOriginFrames(window, 0);
+      });
+      documentWalkPending = false;
+      if (documentWalkAgain) {
+        documentWalkAgain = false;
+        translateDocument();
       }
+    };
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(run, { timeout: 80 });
+    } else {
+      window.setTimeout(run, 0);
     }
-    if (document.body) {
-      walk(document.body);
-      forceTranslateUiLabels(document);
-    }
-    walkAllSameOriginFrames(window, 0);
-    isMutating = false;
   }
 
   function scheduleOnlineFlush() {
@@ -865,30 +1222,31 @@ const CHOTOT_UK = (() => {
       });
     }
 
-    isMutating = true;
-    for (const job of jobs) {
-      const translated = translatedMap.get(job.text);
-      if (!translated || translated === job.text) {
-        continue;
-      }
-      memoryCache.set(job.original || job.text, translated);
-      if (job.kind === "text" && job.textNode?.isConnected) {
-        const current = job.textNode.nodeValue;
-        if (current !== job.expected && current !== job.original) {
+    runSilent(() => {
+      for (const job of jobs) {
+        const translated = translatedMap.get(job.text);
+        if (!translated || translated === job.text) {
           continue;
         }
-        job.textNode.nodeValue = translated;
-      }
-      if (job.kind === "attr" && job.element?.isConnected) {
-        const current = job.element.getAttribute(job.attr);
-        if (current !== job.expected && current !== job.original) {
-          continue;
+        memoryCache.set(job.original || job.text, translated);
+        if (job.kind === "text" && job.textNode?.isConnected) {
+          const current = job.textNode.nodeValue;
+          if (current !== job.expected && current !== job.original) {
+            continue;
+          }
+          job.textNode.nodeValue = translated;
+          lastTranslated.set(job.textNode, translated);
         }
-        job.element.setAttribute(job.attr, translated);
-        memoryCache.set(`${job.attr}::${job.original || job.text}`, translated);
+        if (job.kind === "attr" && job.element?.isConnected) {
+          const current = job.element.getAttribute(job.attr);
+          if (current !== job.expected && current !== job.original) {
+            continue;
+          }
+          job.element.setAttribute(job.attr, translated);
+          memoryCache.set(`${job.attr}::${job.original || job.text}`, translated);
+        }
       }
-    }
-    isMutating = false;
+    });
   }
 
   function scheduleWalkFlush() {
@@ -902,21 +1260,24 @@ const CHOTOT_UK = (() => {
       }
       const roots = [...pendingWalkRoots];
       pendingWalkRoots.clear();
-      isMutating = true;
-      for (const root of roots) {
-        walk(root);
-        const labelRoot =
-          root.querySelectorAll ? root : root.parentElement || document;
-        forceTranslateUiLabels(labelRoot);
-      }
-      forceTranslateUiLabels(document);
-      isMutating = false;
+      runSilent(() => {
+        for (const root of roots) {
+          walk(root);
+          const labelRoot = root.querySelectorAll ? root : root.parentElement;
+          if (labelRoot) {
+            forceTranslateUiLabels(labelRoot);
+          }
+        }
+      });
     }, 16);
   }
 
   function observe() {
-    const observer = new MutationObserver((mutations) => {
-      if (!isEnabled) {
+    if (mutationObserver) {
+      return mutationObserver;
+    }
+    mutationObserver = new MutationObserver((mutations) => {
+      if (!isEnabled || isMutating) {
         return;
       }
       for (const mutation of mutations) {
@@ -947,14 +1308,8 @@ const CHOTOT_UK = (() => {
       scheduleWalkFlush();
     });
 
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ATTRS_TO_TRANSLATE,
-    });
-    return observer;
+    mutationObserver.observe(document.documentElement, OBSERVE_OPTIONS);
+    return mutationObserver;
   }
 
   function requestTranslateBatch(texts) {

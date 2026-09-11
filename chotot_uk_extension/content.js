@@ -40,8 +40,6 @@
   }
 
   setTimeout(() => CHOTOT_UK.translateDocument(), 400);
-  setTimeout(() => CHOTOT_UK.translateDocument(), 1200);
-  setTimeout(() => CHOTOT_UK.translateDocument(), 2800);
 
   if (!globalThis.chrome?.storage?.onChanged) {
     return;

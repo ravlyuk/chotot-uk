@@ -44,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private var lastMainUrl: String = HOME_URL
     private var isRecoveringRenderer = false
     private var popupProbe: WebView? = null
+    private var popupVisitedOauthProvider = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val hasDocumentStart: Boolean
         get() = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
@@ -73,7 +74,11 @@ class MainActivity : AppCompatActivity() {
         mainWebView = binding.webView
         popupWebView = binding.popupWebView
         val prefs = getSharedPreferences(TranslateBridge.PREFS, MODE_PRIVATE)
-        bridge = TranslateBridge(mainWebView, (application as ChototUkApp).translator, prefs)
+        bridge = TranslateBridge(
+            mainWebView,
+            { (application as ChototUkApp).translator },
+            prefs,
+        )
 
         binding.toolbar.inflateMenu(R.menu.main_menu)
         binding.toolbar.menu.findItem(R.id.action_online).isChecked = bridge.isOnlineEnabled()
@@ -99,7 +104,7 @@ class MainActivity : AppCompatActivity() {
                 else -> false
             }
         }
-        binding.popupToolbar.setNavigationOnClickListener { hideOauthPopup() }
+        binding.popupToolbar.setNavigationOnClickListener { dismissOauthPopup() }
         binding.popupToolbar.navigationContentDescription = getString(R.string.oauth_popup_close)
         setupSwipeRefresh()
 
@@ -115,7 +120,7 @@ class MainActivity : AppCompatActivity() {
                 override fun handleOnBackPressed() {
                     when {
                         isOauthPopupVisible() && popupWebView.canGoBack() -> popupWebView.goBack()
-                        isOauthPopupVisible() -> hideOauthPopup()
+                        isOauthPopupVisible() -> dismissOauthPopup()
                         mainWebView.canGoBack() -> mainWebView.goBack()
                         else -> {
                             isEnabled = false
@@ -307,12 +312,75 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun hideOauthPopup() {
+        popupVisitedOauthProvider = false
         if (!isOauthPopupVisible()) {
             return
         }
         binding.popupContainer.visibility = View.GONE
         binding.swipeRefresh.isEnabled = true
         runCatching { popupWebView.loadUrl("about:blank") }
+    }
+
+    private fun dismissOauthPopup() {
+        val shouldReloadMain = popupVisitedOauthProvider && isOauthPopupVisible()
+        hideOauthPopup()
+        if (shouldReloadMain) {
+            mainWebView.reload()
+        }
+    }
+
+    private fun continueAfterOauth(url: String?) {
+        hideOauthPopup()
+        val next = url?.takeIf { candidate ->
+            candidate.isNotBlank() && candidate != "about:blank"
+        }
+        val host = next?.let { Uri.parse(it).host.orEmpty() }.orEmpty()
+        if (next != null && isChototHost(host)) {
+            mainWebView.loadUrl(next)
+        } else {
+            mainWebView.reload()
+        }
+    }
+
+    private fun isExternalOauthHost(host: String): Boolean {
+        if (host.isBlank() || isChototHost(host)) {
+            return false
+        }
+        return host == "accounts.google.com" ||
+            host.startsWith("accounts.") && host.endsWith(".google.com") ||
+            host.contains("oauth") && host.endsWith(".google.com") ||
+            host.endsWith(".facebook.com") ||
+            host == "facebook.com" ||
+            host == "appleid.apple.com"
+    }
+
+    private fun isOauthCallbackUrl(uri: Uri): Boolean {
+        if (!isChototHost(uri.host.orEmpty())) {
+            return false
+        }
+        val path = uri.path.orEmpty().lowercase()
+        val query = uri.encodedQuery.orEmpty()
+        return query.contains("code=") ||
+            query.contains("id_token") ||
+            query.contains("access_token") ||
+            path.contains("callback") ||
+            path.contains("oauth") ||
+            path.contains("redirect") ||
+            path.contains("sso")
+    }
+
+    private fun markPopupOauthHost(host: String) {
+        if (isExternalOauthHost(host)) {
+            popupVisitedOauthProvider = true
+        }
+    }
+
+    private fun shouldLeaveOauthPopup(uri: Uri): Boolean {
+        val host = uri.host.orEmpty()
+        if (!isChototHost(host)) {
+            return false
+        }
+        return !host.startsWith("id.") || popupVisitedOauthProvider || isOauthCallbackUrl(uri)
     }
 
     private fun handleSpecialUrl(view: WebView, uri: Uri): Boolean {
@@ -325,16 +393,43 @@ class MainActivity : AppCompatActivity() {
             return true
         }
         if (scheme == "chotot-app" || scheme == "chotot") {
+            view.loadUrl(extractChototAppWebUrl(uri) ?: DASHBOARD_URL)
             return true
         }
         if (scheme == "intent" || scheme == "market") {
-            val fallback = extractIntentFallback(uri)
-            if (!fallback.isNullOrBlank()) {
-                view.loadUrl(fallback)
-            }
+            val fallback = extractIntentFallback(uri) ?: DASHBOARD_URL
+            view.loadUrl(fallback)
             return true
         }
         return false
+    }
+
+    private fun extractChototAppWebUrl(uri: Uri): String? {
+        val listId = uri.getQueryParameter("list_id")
+            ?: uri.getQueryParameter("ad_id")
+            ?: uri.getQueryParameter("adId")
+            ?: uri.getQueryParameter("listId")
+        if (!listId.isNullOrBlank()) {
+            return "https://www.chotot.com/$listId.htm"
+        }
+        val host = uri.host.orEmpty()
+        val path = uri.path.orEmpty()
+        if (host.endsWith("chotot.com") || host == "chotot.com") {
+            val query = uri.encodedQuery.orEmpty()
+            return buildString {
+                append("https://")
+                append(host)
+                append(path.ifBlank { "/" })
+                if (query.isNotBlank()) {
+                    append('?')
+                    append(query)
+                }
+            }
+        }
+        if (path.contains(".htm") || path.matches(Regex("/\\d{5,}"))) {
+            return "https://www.chotot.com$path"
+        }
+        return null
     }
 
     private fun extractIntentFallback(uri: Uri): String? {
@@ -350,6 +445,12 @@ class MainActivity : AppCompatActivity() {
             return parsed.dataString
         }
         return null
+    }
+
+    private fun isPostingUrl(url: String): Boolean {
+        return url.contains("dang-tin", ignoreCase = true) ||
+            url.contains("dangtin", ignoreCase = true) ||
+            url.contains("/posting", ignoreCase = true)
     }
 
     private fun isChototHost(host: String): Boolean {
@@ -387,9 +488,25 @@ class MainActivity : AppCompatActivity() {
 
     private fun handlePopupTargetUrl(url: String) {
         val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
+        val scheme = uri.scheme.orEmpty()
+        if (scheme == "chotot-app" || scheme == "chotot") {
+            if (isOauthPopupVisible()) {
+                hideOauthPopup()
+            }
+            mainWebView.loadUrl(extractChototAppWebUrl(uri) ?: DASHBOARD_URL)
+            return
+        }
+        if (scheme == "intent" || scheme == "market") {
+            if (isOauthPopupVisible()) {
+                hideOauthPopup()
+            }
+            mainWebView.loadUrl(extractIntentFallback(uri) ?: DASHBOARD_URL)
+            return
+        }
         val host = uri.host.orEmpty()
         when {
             isOauthPopupHost(host) -> {
+                markPopupOauthHost(host)
                 showOauthPopup()
                 popupWebView.loadUrl(url)
             }
@@ -448,13 +565,13 @@ class MainActivity : AppCompatActivity() {
             val uri = request.url
             if (view === popupWebView) {
                 val host = uri.host.orEmpty()
-                if (isChototHost(host) && !host.startsWith("id.")) {
-                    hideOauthPopup()
-                    mainWebView.loadUrl(uri.toString())
+                markPopupOauthHost(host)
+                if (shouldLeaveOauthPopup(uri)) {
+                    continueAfterOauth(uri.toString())
                     return true
                 }
                 if (!isAllowedPopupHost(host)) {
-                    hideOauthPopup()
+                    dismissOauthPopup()
                     return true
                 }
             }
@@ -468,6 +585,15 @@ class MainActivity : AppCompatActivity() {
                     lastMainUrl = url
                 }
             }
+            if (view === popupWebView) {
+                val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull()
+                if (uri != null) {
+                    markPopupOauthHost(uri.host.orEmpty())
+                    if (shouldLeaveOauthPopup(uri)) {
+                        continueAfterOauth(url)
+                    }
+                }
+            }
         }
 
         override fun onPageCommitVisible(view: WebView, url: String) {
@@ -477,9 +603,24 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onPageFinished(view: WebView, url: String) {
+            if (view === popupWebView) {
+                if (url.startsWith("about:blank") && popupVisitedOauthProvider) {
+                    continueAfterOauth(null)
+                    return
+                }
+                val uri = runCatching { Uri.parse(url) }.getOrNull()
+                if (uri != null && shouldLeaveOauthPopup(uri)) {
+                    continueAfterOauth(url)
+                    return
+                }
+            }
             if (view === mainWebView) {
                 binding.progress.visibility = View.GONE
                 stopRefreshing()
+                if (url.startsWith("about:blank") && isPostingUrl(lastMainUrl)) {
+                    view.loadUrl(DASHBOARD_URL)
+                    return
+                }
             }
             if (!injectTranslator || !isChototHost(Uri.parse(url).host.orEmpty())) {
                 return
@@ -530,7 +671,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onCloseWindow(window: WebView?) {
-            hideOauthPopup()
+            dismissOauthPopup()
         }
 
         override fun onShowFileChooser(
@@ -561,12 +702,13 @@ class MainActivity : AppCompatActivity() {
 
     private inner class PopupChromeClient : WebChromeClient() {
         override fun onCloseWindow(window: WebView?) {
-            hideOauthPopup()
+            dismissOauthPopup()
         }
     }
 
     companion object {
         private const val HOME_URL = "https://www.chotot.com/"
+        private const val DASHBOARD_URL = "https://www.chotot.com/dashboard"
         private val CHROME_VERSION_RE = Regex("Chrome/([\\d.]+)")
         private val ANDROID_VERSION_RE = Regex("Android ([\\d.]+)")
         private val CHOTOT_ORIGINS = setOf(
