@@ -19,13 +19,49 @@ class TranslateBridge(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var webViewRef = WeakReference(webView)
+    @Volatile
+    var nestedCanScrollUp: Boolean = false
+        private set
+    @Volatile
+    var isChatSurface: Boolean = false
+        private set
+    var onSurfaceHintsChanged: (() -> Unit)? = null
 
     fun attach(webView: WebView) {
         webViewRef = WeakReference(webView)
+        resetSurfaceHints()
+    }
+
+    fun resetSurfaceHints() {
+        nestedCanScrollUp = false
+        isChatSurface = false
+        notifySurfaceHintsChanged()
+    }
+
+    private fun notifySurfaceHintsChanged() {
+        val view = webViewRef.get() ?: return
+        view.post { onSurfaceHintsChanged?.invoke() }
     }
 
     @JavascriptInterface
     fun isOnlineEnabled(): Boolean = prefs.getBoolean(PREF_ONLINE, false)
+
+    @JavascriptInterface
+    fun setNestedScrollUp(canScroll: Boolean) {
+        nestedCanScrollUp = canScroll
+    }
+
+    @JavascriptInterface
+    fun setChatSurface(isChat: Boolean) {
+        val changed = isChatSurface != isChat
+        isChatSurface = isChat
+        if (isChat) {
+            nestedCanScrollUp = true
+        }
+        if (changed) {
+            notifySurfaceHintsChanged()
+        }
+    }
 
     @JavascriptInterface
     fun translateBatch(requestId: String, textsJson: String) {

@@ -42,6 +42,7 @@ class MainActivity : AppCompatActivity() {
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private lateinit var chromeUserAgent: String
     private var lastMainUrl: String = HOME_URL
+    private var lastImeVisible = false
     private var isRecoveringRenderer = false
     private var popupProbe: WebView? = null
     private var popupVisitedOauthProvider = false
@@ -154,14 +155,46 @@ class MainActivity : AppCompatActivity() {
         binding.swipeRefresh.setColorSchemeResources(R.color.brand_blue)
         binding.swipeRefresh.setProgressBackgroundColorSchemeResource(R.color.brand_yellow)
         binding.swipeRefresh.setOnChildScrollUpCallback { _, _ ->
-            mainWebView.canScrollVertically(-1)
+            canContentScrollUp()
         }
         binding.swipeRefresh.setOnRefreshListener {
-            if (isOauthPopupVisible()) {
+            if (isOauthPopupVisible() || isChatSurface()) {
                 binding.swipeRefresh.isRefreshing = false
                 return@setOnRefreshListener
             }
             mainWebView.reload()
+        }
+    }
+
+    private fun isChatUrl(url: String): Boolean {
+        val parsed = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        val host = parsed.host.orEmpty().lowercase()
+        val path = parsed.path.orEmpty().lowercase()
+        val full = url.lowercase()
+        val fragment = parsed.fragment.orEmpty().lowercase()
+        return host.startsWith("chat.") ||
+            path.contains("/chat") ||
+            path.contains("tin-nhan") ||
+            path.contains("tinnhan") ||
+            fragment.contains("chat") ||
+            full.contains("/chat")
+    }
+
+    private fun isChatSurface(): Boolean {
+        return isChatUrl(lastMainUrl) || bridge.isChatSurface
+    }
+
+    private fun canContentScrollUp(): Boolean {
+        return isChatSurface() ||
+            mainWebView.canScrollVertically(-1) ||
+            bridge.nestedCanScrollUp
+    }
+
+    private fun syncSwipeRefreshEnabled() {
+        val allowRefresh = !isOauthPopupVisible() && !lastImeVisible && !isChatSurface()
+        binding.swipeRefresh.isEnabled = allowRefresh
+        if (!allowRefresh) {
+            binding.swipeRefresh.isRefreshing = false
         }
     }
 
@@ -177,6 +210,7 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = ChototWebViewClient(injectTranslator = true)
         webView.webChromeClient = ChototChromeClient()
         bridge.attach(webView)
+        bridge.onSurfaceHintsChanged = { syncSwipeRefreshEnabled() }
     }
 
     private fun attachPopupWebView(webView: WebView) {
@@ -189,7 +223,8 @@ class MainActivity : AppCompatActivity() {
     private fun recoverAfterRendererCrash() {
         val restoreUrl = lastMainUrl.ifBlank { HOME_URL }
         binding.popupContainer.visibility = View.GONE
-        binding.swipeRefresh.isEnabled = true
+        lastImeVisible = false
+        syncSwipeRefreshEnabled()
         destroyPopupProbe()
         replaceMainWebView()
         replacePopupWebView()
@@ -288,15 +323,14 @@ class MainActivity : AppCompatActivity() {
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             val isImeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+            lastImeVisible = isImeVisible
             view.updatePadding(
                 left = bars.left,
                 top = bars.top,
                 right = bars.right,
                 bottom = maxOf(bars.bottom, ime.bottom),
             )
-            if (!isOauthPopupVisible()) {
-                binding.swipeRefresh.isEnabled = !isImeVisible
-            }
+            syncSwipeRefreshEnabled()
             WindowInsetsCompat.CONSUMED
         }
     }
@@ -317,7 +351,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         binding.popupContainer.visibility = View.GONE
-        binding.swipeRefresh.isEnabled = true
+        syncSwipeRefreshEnabled()
         runCatching { popupWebView.loadUrl("about:blank") }
     }
 
@@ -583,6 +617,10 @@ class MainActivity : AppCompatActivity() {
                 binding.progress.visibility = View.VISIBLE
                 if (!url.isNullOrBlank() && url != "about:blank") {
                     lastMainUrl = url
+                    if (!isChatUrl(url)) {
+                        bridge.resetSurfaceHints()
+                    }
+                    syncSwipeRefreshEnabled()
                 }
             }
             if (view === popupWebView) {

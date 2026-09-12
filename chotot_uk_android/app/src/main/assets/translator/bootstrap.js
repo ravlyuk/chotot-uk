@@ -7,6 +7,7 @@
   keepComposerVisible();
   blockChatLabelSwipe();
   watchChatLabelSheet();
+  watchNestedScroll();
 
   const translateSoon = debounce(() => {
     hideAppPromo();
@@ -219,6 +220,76 @@
         location.replace("https://www.chotot.com/dashboard");
       }
     }, 450);
+  }
+
+  function isChatSurface() {
+    const href = String(location.href || "");
+    if (/chat\.chotot|\/chat(?:\/|$|\?|#)|tin-nhan|tinnhan/i.test(href)) {
+      return true;
+    }
+    const field = document.querySelector(
+      "textarea[placeholder], input[placeholder], [contenteditable='true'][placeholder], [data-placeholder]",
+    );
+    const hint = [
+      field && field.getAttribute("placeholder"),
+      field && field.getAttribute("aria-label"),
+      field && field.getAttribute("data-placeholder"),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return /tin nhắn|повідомлення|Nhập tin|Введіть повідомлення/i.test(hint);
+  }
+
+  function canNodeScrollUp(node) {
+    return !!(node && node.scrollHeight > node.clientHeight + 2 && node.scrollTop > 1);
+  }
+
+  function canNestedScrollUp(from) {
+    if (canNodeScrollUp(document.scrollingElement) || canNodeScrollUp(document.documentElement)) {
+      return true;
+    }
+    let current = from && from.nodeType === Node.ELEMENT_NODE ? from : from && from.parentElement;
+    while (current && current !== document.body && current !== document.documentElement) {
+      const style = window.getComputedStyle(current);
+      const overflowY = style.overflowY;
+      if (
+        (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+        canNodeScrollUp(current)
+      ) {
+        return true;
+      }
+      current = current.parentElement;
+    }
+    return isChatSurface();
+  }
+
+  function reportScrollSurface(from) {
+    const chat = isChatSurface();
+    const canUp = canNestedScrollUp(from);
+    if (window.ChototUkNative && ChototUkNative.setChatSurface) {
+      ChototUkNative.setChatSurface(chat);
+    }
+    if (window.ChototUkNative && ChototUkNative.setNestedScrollUp) {
+      ChototUkNative.setNestedScrollUp(canUp || chat);
+    }
+  }
+
+  function watchNestedScroll() {
+    const onTouch = (event) => {
+      reportScrollSurface(event.target);
+    };
+    document.addEventListener("touchstart", onTouch, { capture: true, passive: true });
+    document.addEventListener("pointerdown", onTouch, { capture: true, passive: true });
+    window.addEventListener(
+      "scroll",
+      () => {
+        reportScrollSurface(document.activeElement);
+      },
+      { capture: true, passive: true },
+    );
+    reportScrollSurface(document.body);
+    window.setTimeout(() => reportScrollSurface(document.body), 300);
+    window.setTimeout(() => reportScrollSurface(document.body), 1200);
   }
 
   function findScrollParent(element) {
